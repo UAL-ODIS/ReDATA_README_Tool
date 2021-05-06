@@ -20,6 +20,7 @@ q = Query()  # For TinyDB query
 
 class IntakeData(BaseModel):
     article_id: int
+    curation_id: int = None
     citation: str = ''
     summary: str = ''
     files: str = ''
@@ -110,24 +111,32 @@ async def update_data(doc_id: int, response: IntakeData,
     return db0
 
 
-@router.get('/form/{article_id}')
-async def get_form(article_id: int, request: Request, stage: bool = False,
+@router.get('/form/{article_id}/')
+async def get_form(article_id: int, request: Request,
+                   curation_id: Optional[int] = None,
+                   stage: bool = False,
+                   allow_approved: bool = False,
                    db_file: str = tinydb_file) \
         -> templates.TemplateResponse:
     """
     Return README form with Figshare metadata and README metadata if available
 
     \f
-    :param article_id: Figshare `article_id`
+    :param article_id: Figshare ``article_id``
+    :param curation_id: Figshare ``curation_id``
     :param request: HTTP request for template
     :param stage: Figshare stage or production API.
                   Stage is only available for Figshare institutions
+    :param allow_approved: Return 200 responses even if curation is not pending
     :param db_file: JSON filename for TinyDB database
 
     :return: HTML content through ``jinja2`` template
     """
     try:
-        fs_metadata = await figshare.get_readme_metadata(article_id, stage=stage)
+        fs_metadata = await \
+            figshare.get_readme_metadata(article_id, curation_id=curation_id,
+                                         stage=stage,
+                                         allow_approved=allow_approved)
     except HTTPException:
         return templates.TemplateResponse('404.html',
                                           context={'request': request})
@@ -145,21 +154,25 @@ async def get_form(article_id: int, request: Request, stage: bool = False,
                                                'fs': fs_metadata})
 
 
-@router.post('/form/{article_id}')
+@router.post('/form/{article_id}/')
 async def post_form(article_id: int, request: Request,
+                    curation_id: Optional[int],
                     citation: Optional[str] = Form(''),
                     summary: Optional[str] = Form(''),
                     files: Optional[str] = Form(''),
                     materials: Optional[str] = Form(''),
                     contributors: Optional[str] = Form(''),
                     notes: Optional[str] = Form(''),
-                    stage: bool = False, db_file: str = tinydb_file) \
+                    stage: bool = False,
+                    allow_approved: bool = False,
+                    db_file: str = tinydb_file) \
         -> templates.TemplateResponse:
     """
     Submit data to incorporate in TinyDB database
 
     \f
     :param article_id: Figshare `article_id`
+    :param curation_id: Figshare ``curation_id``
     :param request: HTTP request
     :param citation: Form response for preferred citation data
     :param summary: Form response for summary data
@@ -169,12 +182,16 @@ async def post_form(article_id: int, request: Request,
     :param notes: Form response for additional notes data
     :param stage: Figshare stage or production API.
                   Stage is only available for Figshare institutions
+    :param allow_approved: Return 200 responses even if curation is not pending
     :param db_file: JSON filename for TinyDB database
     :return: HTML content through ``jinja2`` template
     """
 
     try:
-        fs_metadata = await figshare.get_readme_metadata(article_id, stage=stage)
+        fs_metadata = await \
+            figshare.get_readme_metadata(article_id, curation_id=curation_id,
+                                         stage=stage,
+                                         allow_approved=allow_approved)
     except HTTPException:
         return templates.TemplateResponse('404.html',
                                           context={'request': request})
@@ -197,7 +214,10 @@ async def post_form(article_id: int, request: Request,
         'notes': 'Notes',
     }
 
-    post_data = {'article_id': fs_metadata['article_id'], **result}
+    post_data = {
+        'article_id': fs_metadata['article_id'],
+        'curation_id': fs_metadata['curation_id'],
+        **result}
 
     try:
         doc_id = await get_data(article_id, index=True, db_file=db_file)
